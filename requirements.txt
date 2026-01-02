@@ -1,0 +1,6 @@
+pandas
+matplotlib
+tabulate
+customtkinter
+packaging
+PyQt6
