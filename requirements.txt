@@ -4,3 +4,5 @@ tabulate
 customtkinter
 packaging
 PyQt6
+streamlit
+plotly

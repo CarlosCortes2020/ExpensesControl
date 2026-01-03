@@ -8,13 +8,13 @@ Built with **Python 3**, featuring **SQLite** persistence and **Matplotlib** ana
 
 This project provides three distinct ways to manage your money. All interfaces share the same database, so you can switch between them seamlessly.
 
-| Feature | PyQt6 (Power User) | CustomTkinter (Modern) | CLI (Terminal) |
-| :--- | :--- | :--- | :--- |
-| **Best For** | Heavy data entry, Planning | Dashboarding, Quick Entry | Minimalists, Scripts |
-| **Visual Style** | Spreadsheet / Excel-like | Modern / Dark Mode | Text / ASCII Tables |
-| **Data Entry** | In-cell editing, Copy/Paste | Form-based | Interactive Prompts |
-| **Analytics** | Interactive Charts, Split View | Dashboard w/ Pie & Bar | ASCII Tables |
-| **Budgeting** | Matrix (Month x Category) | Matrix (Scrollable) | Basic Set/Get |
+| Feature | PyQt6 (Power User) | CustomTkinter (Modern) | Streamlit (Web) | CLI (Terminal) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Best For** | Heavy data entry, Planning | Dashboarding, Quick Entry | Browser access, Visualizations | Minimalists, Scripts |
+| **Visual Style** | Spreadsheet / Excel-like | Modern / Dark Mode | Modern Web / Interactive | Text / ASCII Tables |
+| **Data Entry** | In-cell editing, Copy/Paste | Form-based | Editable Dataframes | Interactive Prompts |
+| **Analytics** | Interactive Charts, Split View | Dashboard w/ Pie & Bar | Plotly Interactive Charts | ASCII Tables |
+| **Budgeting** | Matrix (Month x Category) | Matrix (Scrollable) | Matrix (Edit & Save) | Basic Set/Get |
 
 ### 1. The Power User Suite (PyQt6)
 **Run:** `python main_gui_qt.py`
@@ -28,7 +28,13 @@ This project provides three distinct ways to manage your money. All interfaces s
 *   **Dashboard:** Instant visual summary of the year's performance (Pie & Bar charts).
 *   **Simplified Budgeting:** Clean form-based inputs for setting monthly limits.
 
-### 3. The Command Line (CLI)
+### 3. The Web Application (Streamlit)
+**Run:** `streamlit run main_streamlit.py`
+*   **Web Accessibility:** Run directly in your browser.
+*   **Interactive Analytics:** Powered by `Plotly` for rich, interactive visualizations (Trend lines, Donut charts).
+*   **Editable Dataframes:** Bulk edit transactions and budgets directly in the browser.
+
+### 4. The Command Line (CLI)
 **Run:** `python main_cli.py`
 *   **Fast startup.**
 *   **Text-based tables** (via `tabulate`).
@@ -92,6 +98,7 @@ ExpensesControl/
 │           └── models.py   # Qt Data Models
 ├── main_gui_qt.py          # Entry point for Qt App
 ├── main_gui_tk.py          # Entry point for Tk App
+├── main_streamlit.py       # Entry point for Web App
 ├── main_cli.py             # Entry point for CLI
 └── requirements.txt        # Dependencies
 ```
@@ -102,4 +109,4 @@ ExpensesControl/
 *   **Status:** Active Development.
 *   **Known Issues:** 
     *   **Testing:** The project currently lacks automated unit tests (`tests/` is empty). All testing is manual.
-    *   **Tk Interface:** While functional, the Tk interface uses a different budgeting paradigm (Entry widgets vs Table) compared to Qt.
+    *   **Interfaces:** All 4 interfaces (Qt, Tk, Web, CLI) are functional and share the same data.

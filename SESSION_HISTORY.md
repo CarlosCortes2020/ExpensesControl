@@ -33,6 +33,19 @@ Performed a comprehensive audit of the entire codebase to assess project health,
 
 ---
 
+**Date:** January 2, 2026 (Session 3)
+**Topic:** Web Interface Integration & Documentation
+
+*   **Web Interface (Streamlit):**
+    *   Recognized `main_streamlit.py` as a fully functional 4th interface.
+    *   Features include: Interactive Dashboard (Plotly), Editable Dataframes for Transactions and Budgets, and Matrix views for Income/Expenses.
+*   **Documentation:**
+    *   Updated `README.md` to include **Streamlit** in the interface comparison table.
+    *   Added run instructions (`streamlit run main_streamlit.py`).
+    *   Updated project structure to include the web entry point.
+
+---
+
 **Date:** December 31, 2025  
 **Topic:** Expenses Control Application - GUI & Feature Enhancement
 
