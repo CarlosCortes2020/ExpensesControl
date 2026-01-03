@@ -232,6 +232,17 @@ def db_add_expense(date, category, amount, description, expense_type="Gasto", me
     """Insert a new expense into the database."""
     conn = get_db_connection()
     try:
+        # Ensure category exists in categories table for consistency
+        # Map GUI type to DB Category Type
+        cat_type_map = {"Gasto": "Expense", "Ingreso": "Income"}
+        db_cat_type = cat_type_map.get(expense_type, "Expense")
+        
+        # Try to add category (ignore if exists)
+        try:
+            conn.execute('INSERT INTO categories (name, type) VALUES (?, ?)', (category, db_cat_type))
+        except sqlite3.IntegrityError:
+            pass # Already exists
+
         # Check schema
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(expenses)")
@@ -275,16 +286,20 @@ def db_get_all_expenses_df():
         has_type = 'type' in columns
         has_member = 'member' in columns
         
-        query = "SELECT id, date as 'Fecha', category as 'Categoría', amount as 'Monto', description as 'Descripción'"
-        if has_type:
-            query += ", type as 'Tipo'"
-        else:
-            query += ", 'Gasto' as 'Tipo'"
-            
+        # Desired Order for GUI: id, Fecha, Categoría, Descripción, Miembro, Monto, Tipo
+        query = "SELECT id, date as 'Fecha', category as 'Categoría', description as 'Descripción'"
+        
         if has_member:
             query += ", member as 'Miembro'"
         else:
             query += ", '' as 'Miembro'"
+
+        query += ", amount as 'Monto'"
+
+        if has_type:
+            query += ", type as 'Tipo'"
+        else:
+            query += ", 'Gasto' as 'Tipo'"
             
         query += " FROM expenses ORDER BY date DESC"
         
@@ -292,7 +307,9 @@ def db_get_all_expenses_df():
         return df
     except Exception as e:
         print(f"Error fetching expenses DF: {e}")
-        return pd.DataFrame(columns=DEFAULT_COLUMNS)
+        # Return empty DF with expected columns including 'id'
+        cols = ["id"] + DEFAULT_COLUMNS
+        return pd.DataFrame(columns=cols)
     finally:
         conn.close()
 
@@ -403,6 +420,74 @@ def db_get_analytics_data(year):
     conn.close()
     
     return df_expenses, df_income, df_budget_expenses, df_budget_income
+
+def db_get_real_expenses_matrix(year):
+    """
+    Return a DataFrame where:
+    Index = Categories (Type='Gasto')
+    Columns = Months (1-12)
+    Values = Sum of Amount
+    """
+    conn = get_db_connection()
+    try:
+        categories = db_get_categories('Expense')
+        if not categories:
+             return pd.DataFrame(columns=range(1, 13))
+
+        # Filter by year and type
+        query = """
+            SELECT category, CAST(strftime('%m', date) AS INTEGER) as month, sum(amount) as total 
+            FROM expenses 
+            WHERE strftime('%Y', date) = ? AND type = 'Gasto'
+            GROUP BY category, month
+        """
+        
+        df_real = pd.read_sql_query(query, conn, params=[str(year)])
+        
+        if df_real.empty:
+            df_pivot = pd.DataFrame(0.0, index=categories, columns=range(1, 13))
+        else:
+            df_pivot = df_real.pivot(index='category', columns='month', values='total').fillna(0.0)
+            # Reindex to ensure all categories and months are present
+            df_pivot = df_pivot.reindex(index=categories, columns=range(1, 13), fill_value=0.0)
+            
+        return df_pivot
+    finally:
+        conn.close()
+
+def db_get_real_income_matrix(year):
+    """
+    Return a DataFrame where:
+    Index = Categories (Type='Income')
+    Columns = Months (1-12)
+    Values = Sum of Amount
+    """
+    conn = get_db_connection()
+    try:
+        categories = db_get_categories('Income')
+        if not categories:
+             return pd.DataFrame(columns=range(1, 13))
+
+        # Filter by year and type
+        query = """
+            SELECT category, CAST(strftime('%m', date) AS INTEGER) as month, sum(amount) as total 
+            FROM expenses 
+            WHERE strftime('%Y', date) = ? AND type = 'Ingreso'
+            GROUP BY category, month
+        """
+        
+        df_real = pd.read_sql_query(query, conn, params=[str(year)])
+        
+        if df_real.empty:
+            df_pivot = pd.DataFrame(0.0, index=categories, columns=range(1, 13))
+        else:
+            df_pivot = df_real.pivot(index='category', columns='month', values='total').fillna(0.0)
+            # Reindex to ensure all categories and months are present
+            df_pivot = df_pivot.reindex(index=categories, columns=range(1, 13), fill_value=0.0)
+            
+        return df_pivot
+    finally:
+        conn.close()
 
 def process_monthly_summary(df_expenses, df_income, df_budget_expenses, df_budget_income):
     """Process raw dataframes into a monthly summary dataframe."""

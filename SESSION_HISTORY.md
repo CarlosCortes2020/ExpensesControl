@@ -1,5 +1,38 @@
 # Development Session History
 
+**Date:** January 2, 2026
+**Topic:** System Audit & Documentation Overhaul
+
+Performed a comprehensive audit of the entire codebase to assess project health, feature completeness, and architectural consistency.
+
+---
+
+## 1. System Audit Findings
+*   **Architecture:** Confirmed a clean separation of concerns. `core.py` effectively serves as a shared Data Access Layer (DAL) for all three interfaces (CLI, Qt, Tk), using SQLite as the single source of truth.
+*   **Interface Status:**
+    *   **Qt (PyQt6):** valid, feature-rich, "Pro" interface with Excel-like grid editing and complex charting.
+    *   **Tk (CustomTkinter):** valid, "Modern" interface. Surprisingly complete with dashboarding and budget planning, offering a simpler user experience than Qt.
+    *   **CLI:** Functional legacy interface.
+*   **Critical Gap:** The `tests/` directory is empty. The project currently relies entirely on manual testing.
+
+## 2. Documentation Updates
+*   **Goal:** Reflect the multi-interface nature of the application in the public documentation.
+*   **Action:** 
+    *   Updated `README.md` to showcase both Qt and Tk interfaces as first-class citizens.
+    *   Clarified the distinct use cases for each interface (Power User vs. Modern/Simple).
+    *   Added a "Project Status" section to transparently report the lack of automated tests.
+
+---
+
+**Date:** January 2, 2026 (Session 2)
+**Topic:** Documentation Refinement & Schema Verification
+
+*   **Verified Codebase:** Checked `src/expenses_control/core.py`, `qt_app.py`, and `tk_app.py` to ensure feature lists in `README.md` are accurate.
+*   **Schema Documentation:** Added a detailed "Database Schema" section to `README.md` outlining the `expenses`, `budgets`, and `categories` tables, including recent migrations like `type` and `member`.
+*   **Comparison Table:** Added a "Choose Your Interface" comparison table to `README.md` to help users decide between Qt, Tk, and CLI.
+
+---
+
 **Date:** December 31, 2025  
 **Topic:** Expenses Control Application - GUI & Feature Enhancement
 

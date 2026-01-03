@@ -128,8 +128,12 @@ class ExpenseTableModel(QAbstractTableModel):
         ids_to_delete = []
         for row_idx in rows:
             try:
-                ids_to_delete.append(self._df.iloc[row_idx]['id'])
-            except:
+                # Use item() to convert numpy types to native Python types
+                val = self._df.iloc[row_idx]['id']
+                # If val is numpy int, int(val) works.
+                ids_to_delete.append(int(val))
+            except (KeyError, ValueError, TypeError) as e:
+                print(f"Error getting ID for row {row_idx}: {e}")
                 pass
         
         for eid in ids_to_delete:
@@ -203,9 +207,17 @@ class BudgetTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.BackgroundRole:
             # Totals Row (0) or Total Column (13)
             if row == 0 or col == 13:
-                return QColor("#f0f0f0") # Light Gray
+                # Use a semi-transparent gray that works in light and dark
+                return QColor(128, 128, 128, 40) 
             return None
         
+        # --- TEXT COLOR AND FONT FOR TOTALS ---
+        if role == Qt.ItemDataRole.ForegroundRole:
+            if row == 0 or col == 13:
+                # Keep it neutral but ensure it's not too light/dark
+                return None # Let the system decide based on background
+            return None
+
         # --- ROW 0: MONTHLY TOTALS ---
         if row == 0:
             if role == Qt.ItemDataRole.DisplayRole or role == Qt.ItemDataRole.EditRole:
@@ -388,5 +400,47 @@ class BudgetTableModel(QAbstractTableModel):
     def refresh_data(self):
         self.beginResetModel()
         self._df = em.db_get_budget_matrix(self.year, ctype=self.category_type)
+        self.endResetModel()
+
+class RealExpenseTableModel(BudgetTableModel):
+    def __init__(self, year, data_df):
+        # Category Type is 'Expense' for real expenses
+        super().__init__(year, data_df, category_type="Expense")
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+
+    def rowCount(self, parent=QModelIndex()):
+        # No phantom row. Just totals (1) + Data Rows
+        return self._view_df.shape[0] + 1
+    
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        return False
+        
+    def refresh_data(self):
+        self.beginResetModel()
+        self._df = em.db_get_real_expenses_matrix(self.year)
+        self.endResetModel()
+
+class RealIncomeTableModel(RealExpenseTableModel):
+    def __init__(self, year, data_df):
+        # Category Type is 'Income' for real income
+        # We inherit from RealExpenseTableModel which inherits from BudgetTableModel
+        # But we need to init BudgetTableModel with 'Income'
+        super(BudgetTableModel, self).__init__() 
+        
+        self.year = year
+        self.category_type = "Income"
+        self.month_names = {
+            1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
+            7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
+        }
+        self.refresh_data_internal(data_df)
+
+    def refresh_data(self):
+        self.beginResetModel()
+        self._df = em.db_get_real_income_matrix(self.year)
         self.refresh_data_internal(self._df)
         self.endResetModel()
