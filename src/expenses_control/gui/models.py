@@ -163,10 +163,7 @@ class BudgetTableModel(QAbstractTableModel):
         self.year = year
         self.category_type = category_type
         
-        self.month_names = {
-            1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
-            7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
-        }
+        self.month_names = em.MONTH_MAP
         
         self.refresh_data_internal(data_df)
 
@@ -433,10 +430,7 @@ class RealIncomeTableModel(RealExpenseTableModel):
         
         self.year = year
         self.category_type = "Income"
-        self.month_names = {
-            1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
-            7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
-        }
+        self.month_names = em.MONTH_MAP
         self.refresh_data_internal(data_df)
 
     def refresh_data(self):

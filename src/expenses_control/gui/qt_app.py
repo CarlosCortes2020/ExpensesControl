@@ -279,7 +279,7 @@ class AddExpenseDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Registrar Nuevo Movimiento")
-        self.resize(400, 300)
+        self.resize(400, 350)
         self.layout = QFormLayout(self)
         
         # Fields
@@ -302,11 +302,15 @@ class AddExpenseDialog(QDialog):
         self.desc_edit = QLineEdit()
         self.member_edit = QLineEdit()
         
+        self.payment_combo = QComboBox()
+        self.payment_combo.addItems(em.DEFAULT_PAYMENT_METHODS)
+        
         # Layout
         self.layout.addRow("Fecha:", self.date_edit)
         self.layout.addRow("Tipo:", self.type_combo)
         self.layout.addRow("Categoría:", self.category_combo)
         self.layout.addRow("Monto:", self.amount_spin)
+        self.layout.addRow("Método Pago:", self.payment_combo)
         self.layout.addRow("Descripción:", self.desc_edit)
         self.layout.addRow("Miembro (Opcional):", self.member_edit)
         
@@ -338,7 +342,8 @@ class AddExpenseDialog(QDialog):
             'category': self.category_combo.currentText(),
             'amount': self.amount_spin.value(),
             'description': self.desc_edit.text(),
-            'member': self.member_edit.text()
+            'member': self.member_edit.text(),
+            'payment_method': self.payment_combo.currentText()
         }
 
 class IncomeWidget(QWidget):
@@ -557,10 +562,16 @@ class ExpensesWidget(QWidget):
         # Delegates
         self.table_view.setItemDelegateForColumn(1, DateDelegate(self.table_view)) # Date is col 1
         self.table_view.setItemDelegateForColumn(2, CategoryDelegate(self.table_view)) # Category is col 2
-        # Type is likely col 5 or 6 depending on schema.
-        # Check model headers: id, Fecha, Categoría, Descripción, Miembro, Monto, Tipo
-        # id=0, Fecha=1, Cat=2, Desc=3, Mem=4, Monto=5, Tipo=6
         self.table_view.setItemDelegateForColumn(6, TypeDelegate(self.table_view))
+        
+        # Payment Method Delegate
+        payment_delegate = QStyledItemDelegate(self.table_view)
+        def create_payment_editor(parent, option, index):
+            editor = QComboBox(parent)
+            editor.addItems(em.DEFAULT_PAYMENT_METHODS)
+            return editor
+        payment_delegate.createEditor = create_payment_editor
+        self.table_view.setItemDelegateForColumn(7, payment_delegate)
 
         # Styling
         self.table_view.setAlternatingRowColors(True)
@@ -575,28 +586,27 @@ class ExpensesWidget(QWidget):
         header.setStretchLastSection(True)
         self.table_view.setColumnWidth(1, 100) # Date
         self.table_view.setColumnWidth(2, 150) # Category
-        self.table_view.setColumnWidth(3, 250) # Description
-        self.table_view.setColumnWidth(4, 120) # Member
+        self.table_view.setColumnWidth(3, 200) # Description
+        self.table_view.setColumnWidth(4, 100) # Member
         self.table_view.setColumnWidth(5, 100) # Amount
         self.table_view.setColumnWidth(6, 100) # Type
+        self.table_view.setColumnWidth(7, 150) # Payment Method
 
     def open_add_dialog(self):
         dialog = AddExpenseDialog(self)
         if dialog.exec():
             data = dialog.get_data()
-            # db_add_expense(date, category, amount, description, expense_type="Gasto", member="")
             em.db_add_expense(
                 data['date'],
                 data['category'],
                 data['amount'],
                 data['description'],
                 data['type'],
-                data['member']
+                data['member'],
+                data['payment_method']
             )
             self.refresh_data()
             self.data_changed.emit()
-            
-            # Auto-scroll to top to see new entry (since we order by Date DESC usually)
             self.table_view.scrollToTop()
 
     def delete_rows(self):
@@ -604,7 +614,6 @@ class ExpensesWidget(QWidget):
         if not selection.hasSelection():
             return
         
-        # Get unique rows from selected indexes
         indexes = selection.selectedIndexes()
         rows = sorted(list(set(index.row() for index in indexes)), reverse=True)
         
@@ -870,7 +879,7 @@ class DashboardWidget(QWidget):
             
         # 1. Monthly Trend (Line Chart)
         months = range(1, 13)
-        month_labels = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        month_labels = em.MONTH_NAMES
         
         ax1.plot(months, analysis['income_amount'], label='Ingresos', color=c_inc, linewidth=2.5, marker='o', markersize=6)
         ax1.plot(months, analysis['expense_amount'], label='Gastos', color=c_exp, linewidth=2.5, marker='o', markersize=6)
@@ -886,19 +895,15 @@ class DashboardWidget(QWidget):
         # 2. Expense Categories (Pie - Donut Style for modern look)
         if not df_expenses.empty:
             cat_summary = df_expenses.groupby('category')['amount'].sum()
-            # Modern Donut Chart
             wedges, texts, autotexts = ax2.pie(cat_summary, labels=cat_summary.index, autopct='%1.1f%%', 
                                               startangle=90, pctdistance=0.85,
                                               wedgeprops=dict(width=0.4, edgecolor='white'))
             
-            # Center Text (Total)
             total_val = cat_summary.sum()
             center_color = "white" if self.is_dark else "#333"
             ax2.text(0, 0, f"${total_val:,.0f}", ha='center', va='center', fontsize=12, fontweight='bold', color=center_color)
-            
             ax2.set_title("Distribución de Gastos", pad=10, fontsize=10, fontweight='bold')
             
-            # Style text
             for t in texts + autotexts:
                 t.set_color("white" if self.is_dark else "#333")
                 t.set_fontsize(8)
@@ -916,10 +921,6 @@ class DashboardWidget(QWidget):
         ax3.set_xticks(months)
         ax3.set_xticklabels(month_labels, fontsize=8)
         ax3.set_title("Presupuesto vs Ejecución", pad=10, fontsize=10, fontweight='bold')
-        
-        # Labels on top
-        # ChartStyler.add_value_labels(ax3, self.is_dark) # Optional: Can be crowded, enable if desired.
-        # Let's add them but maybe simplified or rotated if needed. For now standard.
         
         leg3 = ax3.legend(frameon=False, fontsize=8)
         if self.is_dark:
@@ -962,15 +963,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.registry_tab, "Registro Diario")
         
         # Connect Signals for Auto-Update
-        # When Registry (Data Entry) changes -> Update Everything
         self.registry_tab.data_changed.connect(self.dashboard_tab.refresh_data)
         self.registry_tab.data_changed.connect(self.income_tab.refresh_data)
         self.registry_tab.data_changed.connect(self.expenses_analysis_tab.refresh_data)
-        
-        # When Income Budget changes -> Update Dashboard
         self.income_tab.data_changed.connect(self.dashboard_tab.refresh_data)
-        
-        # When Expense Budget changes -> Update Dashboard
         self.expenses_analysis_tab.data_changed.connect(self.dashboard_tab.refresh_data)
         
         # Status Bar
@@ -993,6 +989,12 @@ class MainWindow(QMainWindow):
 
         # File Menu
         file_menu = menu_bar.addMenu("&Archivo")
+        
+        export_action = QAction("Exportar a CSV...", self)
+        export_action.triggered.connect(self.export_data)
+        file_menu.addAction(export_action)
+
+        file_menu.addSeparator()
         
         exit_action = QAction("&Salir", self)
         exit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -1043,6 +1045,49 @@ class MainWindow(QMainWindow):
         self.income_tab.update_groupbox_styles(is_dark)
         self.expenses_analysis_tab.update_groupbox_styles(is_dark)
 
+    def export_data(self):
+        options = ["Movimientos (Todos)", "Presupuesto de Gastos Planeado", "Presupuesto Gastos Reales", "Presupuesto de Ingresos Planeado", "Presupuesto Ingresos Reales"]
+        export_type, ok = QInputDialog.getItem(self, "Exportar Datos", "Seleccione datos a exportar:", options, 0, False)
+        
+        if not ok: return
+
+        year = QDate.currentDate().year()
+        if "Presupuesto" in export_type:
+            year, ok = QInputDialog.getInt(self, "Seleccionar Año", "Año Fiscal:", year, 2000, 2100)
+            if not ok: return
+
+        try:
+            if export_type == "Movimientos (Todos)":
+                df = em.db_get_all_expenses_df()
+                filename_hint = f"movimientos_{QDate.currentDate().toString('yyyy-MM-dd')}.csv"
+            elif export_type == "Presupuesto de Gastos Planeado":
+                df = em.db_get_budget_matrix(year, ctype="Expense")
+                df.columns = [em.MONTH_MAP.get(c, c) for c in df.columns]
+                filename_hint = f"presupuesto_gastos_planeado_{year}.csv"
+            elif export_type == "Presupuesto Gastos Reales":
+                df = em.db_get_real_expenses_matrix(year)
+                df.columns = [em.MONTH_MAP.get(c, c) for c in df.columns]
+                filename_hint = f"presupuesto_gastos_reales_{year}.csv"
+            elif export_type == "Presupuesto de Ingresos Planeado":
+                df = em.db_get_budget_matrix(year, ctype="Income")
+                df.columns = [em.MONTH_MAP.get(c, c) for c in df.columns]
+                filename_hint = f"presupuesto_ingresos_planeado_{year}.csv"
+            else: # Presupuesto Ingresos Reales
+                df = em.db_get_real_income_matrix(year)
+                df.columns = [em.MONTH_MAP.get(c, c) for c in df.columns]
+                filename_hint = f"presupuesto_ingresos_reales_{year}.csv"
+
+            file_path, _ = QFileDialog.getSaveFileName(self, "Guardar CSV", filename_hint, "CSV Files (*.csv)")
+            if file_path:
+                if 'id' in df.columns:
+                    df = df.drop(columns=['id'])
+                save_index = "Presupuesto" in export_type
+                df.to_csv(file_path, index=save_index, encoding='utf-8-sig')
+                QMessageBox.showinfo("Éxito", f"Datos exportados a:\n{file_path}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al exportar:\n{str(e)}")
+
     def add_expense_row(self):
         self.tabs.setCurrentWidget(self.registry_tab)
         self.registry_tab.open_add_dialog()
@@ -1051,7 +1096,6 @@ class MainWindow(QMainWindow):
         if self.tabs.currentWidget() != self.registry_tab:
             QMessageBox.information(self, "Info", "Cambie a la pestaña 'Registro Diario' para borrar.")
             return
-        # Redirect to widget method
         self.registry_tab.delete_rows()
 
     def show_totals(self):

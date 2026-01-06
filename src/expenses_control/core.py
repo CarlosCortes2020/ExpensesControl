@@ -18,7 +18,16 @@ DEFAULT_INCOME_CATEGORIES = [
     "Salary", "Bonus", "Food Coupons", "Market coupons"
 ]
 
-DEFAULT_COLUMNS = ["Fecha", "Categoría", "Descripción", "Miembro", "Monto", "Tipo"]
+DEFAULT_COLUMNS = ["Fecha", "Categoría", "Descripción", "Miembro", "Monto", "Tipo", "Método Pago"]
+
+DEFAULT_PAYMENT_METHODS = [
+    "Efectivo", "Tarjeta de Crédito", "Tarjeta de Débito", 
+    "Cupón de Alimentos", "Cupón de Mercado", "Transferencia", "Billetera Digital"
+]
+
+MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+MONTH_MAP = {i+1: name for i, name in enumerate(MONTH_NAMES)}
+MONTH_NAME_TO_NUM = {name: i+1 for i, name in enumerate(MONTH_NAMES)}
 
 # --- CSV Persistence (Excel Style) ---
 
@@ -73,13 +82,15 @@ def init_db():
         )
     ''')
     
-    # Ensure 'type' and 'member' columns exist in expenses
+    # Ensure all columns exist in expenses
     cursor.execute("PRAGMA table_info(expenses)")
     exp_cols = [info[1] for info in cursor.fetchall()]
     if 'type' not in exp_cols:
         cursor.execute("ALTER TABLE expenses ADD COLUMN type TEXT DEFAULT 'Gasto'")
     if 'member' not in exp_cols:
         cursor.execute("ALTER TABLE expenses ADD COLUMN member TEXT DEFAULT ''")
+    if 'payment_method' not in exp_cols:
+        cursor.execute("ALTER TABLE expenses ADD COLUMN payment_method TEXT DEFAULT 'Efectivo'")
 
     # Budgets table (month is 1-12, year is YYYY, category is text)
     try:
@@ -146,14 +157,6 @@ def import_csv_to_db():
     print("Migrating CSV data to Database...")
     try:
         df = pd.read_csv(CSV_FILE)
-        # Expected CSV columns: "Fecha", "Categoría", "Descripción", "Miembro", "Monto", "Tipo"
-        # DB columns: date, category, amount, description
-        # We lose "Miembro" and "Tipo" in the current DB schema?
-        # Let's check DB schema in init_db. 
-        # Schema: date, category, amount, description. 
-        # Missing: type, member. 
-        # We should update the schema to be lossless before importing.
-        
         # Ensure new columns exist
         cursor.execute("PRAGMA table_info(expenses)")
         columns = [info[1] for info in cursor.fetchall()]
@@ -161,17 +164,20 @@ def import_csv_to_db():
             cursor.execute('ALTER TABLE expenses ADD COLUMN type TEXT')
         if 'member' not in columns:
             cursor.execute('ALTER TABLE expenses ADD COLUMN member TEXT')
+        if 'payment_method' not in columns:
+            cursor.execute('ALTER TABLE expenses ADD COLUMN payment_method TEXT')
         
         for _, row in df.iterrows():
             cursor.execute(
-                'INSERT INTO expenses (date, category, description, member, amount, type) VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO expenses (date, category, description, member, amount, type, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 (
                     row.get('Fecha', ''), 
                     row.get('Categoría', 'Otros'), 
                     row.get('Descripción', ''), 
                     row.get('Miembro', ''),
                     row.get('Monto', 0.0),
-                    row.get('Tipo', 'Gasto')
+                    row.get('Tipo', 'Gasto'),
+                    row.get('Método Pago', 'Efectivo')
                 )
             )
         conn.commit()
@@ -228,37 +234,23 @@ def db_add_category(name, ctype='Expense'):
     finally:
         conn.close()
 
-def db_add_expense(date, category, amount, description, expense_type="Gasto", member=""):
+def db_add_expense(date, category, amount, description, expense_type="Gasto", member="", payment_method="Efectivo"):
     """Insert a new expense into the database."""
     conn = get_db_connection()
     try:
         # Ensure category exists in categories table for consistency
-        # Map GUI type to DB Category Type
         cat_type_map = {"Gasto": "Expense", "Ingreso": "Income"}
         db_cat_type = cat_type_map.get(expense_type, "Expense")
         
-        # Try to add category (ignore if exists)
         try:
             conn.execute('INSERT INTO categories (name, type) VALUES (?, ?)', (category, db_cat_type))
         except sqlite3.IntegrityError:
             pass # Already exists
 
-        # Check schema
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(expenses)")
-        columns = [info[1] for info in cursor.fetchall()]
-        
-        if 'type' in columns and 'member' in columns:
-             conn.execute(
-                'INSERT INTO expenses (date, category, amount, description, type, member) VALUES (?, ?, ?, ?, ?, ?)',
-                (date, category, amount, description, expense_type, member)
-            )
-        else:
-            # Fallback for legacy schema (though import_csv_to_db should have fixed it)
-            conn.execute(
-                'INSERT INTO expenses (date, category, amount, description) VALUES (?, ?, ?, ?)',
-                (date, category, amount, description)
-            )
+        conn.execute(
+            'INSERT INTO expenses (date, category, amount, description, type, member, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (date, category, amount, description, expense_type, member, payment_method)
+        )
         conn.commit()
     finally:
         conn.close()
@@ -278,31 +270,13 @@ def db_get_all_expenses_df():
     """Fetch all expenses as a DataFrame (for GUI)."""
     conn = get_db_connection()
     try:
-        # Check for extended schema columns
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(expenses)")
-        columns = [info[1] for info in cursor.fetchall()]
-        
-        has_type = 'type' in columns
-        has_member = 'member' in columns
-        
-        # Desired Order for GUI: id, Fecha, Categoría, Descripción, Miembro, Monto, Tipo
-        query = "SELECT id, date as 'Fecha', category as 'Categoría', description as 'Descripción'"
-        
-        if has_member:
-            query += ", member as 'Miembro'"
-        else:
-            query += ", '' as 'Miembro'"
-
-        query += ", amount as 'Monto'"
-
-        if has_type:
-            query += ", type as 'Tipo'"
-        else:
-            query += ", 'Gasto' as 'Tipo'"
-            
-        query += " FROM expenses ORDER BY date DESC"
-        
+        # Desired Order for GUI: id, Fecha, Categoría, Descripción, Miembro, Monto, Tipo, Método Pago
+        query = """
+            SELECT id, date as 'Fecha', category as 'Categoría', description as 'Descripción',
+                   member as 'Miembro', amount as 'Monto', type as 'Tipo', 
+                   payment_method as 'Método Pago'
+            FROM expenses ORDER BY date DESC
+        """
         df = pd.read_sql_query(query, conn)
         return df
     except Exception as e:
@@ -328,8 +302,6 @@ def db_get_budget_matrix(year, ctype='Expense'):
         if not categories:
             return pd.DataFrame(columns=range(1, 13))
 
-        # Get budgets for these categories
-        # Ideally we should filter by category type via join, but simple "IN" clause works for small list
         placeholders = ','.join(['?'] * len(categories))
         query = f"SELECT category, month, amount FROM budgets WHERE year = ? AND category IN ({placeholders})"
         
@@ -339,7 +311,6 @@ def db_get_budget_matrix(year, ctype='Expense'):
             df_pivot = pd.DataFrame(0.0, index=categories, columns=range(1, 13))
         else:
             df_pivot = df_budgets.pivot(index='category', columns='month', values='amount').fillna(0.0)
-            # Reindex to ensure all categories and months are present
             df_pivot = df_pivot.reindex(index=categories, columns=range(1, 13), fill_value=0.0)
             
         return df_pivot
@@ -354,23 +325,39 @@ def db_delete_expense(expense_id):
 
 def db_update_expense(expense_id, field, value):
     conn = get_db_connection()
-    # Be careful with field injection, but this is local app.
-    # Map friendly names to DB columns
     field_map = {
         'Fecha': 'date',
         'Categoría': 'category',
         'Monto': 'amount',
         'Descripción': 'description',
         'Tipo': 'type',
-        'Miembro': 'member'
+        'Miembro': 'member',
+        'Método Pago': 'payment_method'
     }
     db_field = field_map.get(field)
     if not db_field:
         return
         
-    conn.execute(f'UPDATE expenses SET {db_field} = ? WHERE id = ?', (value, expense_id))
-    conn.commit()
-    conn.close()
+    try:
+        # If updating category, ensure it exists in categories table
+        if db_field == 'category':
+            row = conn.execute('SELECT type FROM expenses WHERE id = ?', (expense_id,)).fetchone()
+            if row:
+                expense_type = row['type']
+                cat_type_map = {"Gasto": "Expense", "Ingreso": "Income"}
+                db_cat_type = cat_type_map.get(expense_type, "Expense")
+                
+                try:
+                    conn.execute('INSERT INTO categories (name, type) VALUES (?, ?)', (value, db_cat_type))
+                except sqlite3.IntegrityError:
+                    pass # Exists
+
+        conn.execute(f'UPDATE expenses SET {db_field} = ? WHERE id = ?', (value, expense_id))
+        conn.commit()
+    except Exception as e:
+        print(f"Update failed: {e}")
+    finally:
+        conn.close()
 
 def db_get_recent_expenses(limit=50):
     """Fetch recent expenses."""
@@ -434,7 +421,6 @@ def db_get_real_expenses_matrix(year):
         if not categories:
              return pd.DataFrame(columns=range(1, 13))
 
-        # Filter by year and type
         query = """
             SELECT category, CAST(strftime('%m', date) AS INTEGER) as month, sum(amount) as total 
             FROM expenses 
@@ -448,7 +434,6 @@ def db_get_real_expenses_matrix(year):
             df_pivot = pd.DataFrame(0.0, index=categories, columns=range(1, 13))
         else:
             df_pivot = df_real.pivot(index='category', columns='month', values='total').fillna(0.0)
-            # Reindex to ensure all categories and months are present
             df_pivot = df_pivot.reindex(index=categories, columns=range(1, 13), fill_value=0.0)
             
         return df_pivot
@@ -468,7 +453,6 @@ def db_get_real_income_matrix(year):
         if not categories:
              return pd.DataFrame(columns=range(1, 13))
 
-        # Filter by year and type
         query = """
             SELECT category, CAST(strftime('%m', date) AS INTEGER) as month, sum(amount) as total 
             FROM expenses 
@@ -482,7 +466,6 @@ def db_get_real_income_matrix(year):
             df_pivot = pd.DataFrame(0.0, index=categories, columns=range(1, 13))
         else:
             df_pivot = df_real.pivot(index='category', columns='month', values='total').fillna(0.0)
-            # Reindex to ensure all categories and months are present
             df_pivot = df_pivot.reindex(index=categories, columns=range(1, 13), fill_value=0.0)
             
         return df_pivot
@@ -491,7 +474,6 @@ def db_get_real_income_matrix(year):
 
 def process_monthly_summary(df_expenses, df_income, df_budget_expenses, df_budget_income):
     """Process raw dataframes into a monthly summary dataframe."""
-    # Ensure month column exists even if empty
     all_months = pd.DataFrame({'month': range(1, 13)})
 
     # Expenses Summary

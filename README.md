@@ -1,20 +1,20 @@
 # Expenses Control System
 
-A versatile personal finance management system offering multiple interfaces to suit your workflow. Whether you prefer a power-user spreadsheet experience (Qt), a modern dashboard (Tk), or a quick command line (CLI), Expenses Control has you covered.
+A versatile personal finance management system offering multiple interfaces to suit your workflow. Whether you prefer a power-user spreadsheet experience (Qt) or a modern web dashboard (Streamlit), Expenses Control has you covered.
 
-Built with **Python 3**, featuring **SQLite** persistence and **Matplotlib** analytics.
+Built with **Python 3**, featuring **SQLite** persistence and **Matplotlib/Plotly** analytics.
 
 ## 🌟 Choose Your Interface
 
-This project provides three distinct ways to manage your money. All interfaces share the same database, so you can switch between them seamlessly.
+This project provides two distinct ways to manage your money. Both interfaces share the same database, so you can switch between them seamlessly.
 
-| Feature | PyQt6 (Power User) | CustomTkinter (Modern) | Streamlit (Web) | CLI (Terminal) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Best For** | Heavy data entry, Planning | Dashboarding, Quick Entry | Browser access, Visualizations | Minimalists, Scripts |
-| **Visual Style** | Spreadsheet / Excel-like | Modern / Dark Mode | Modern Web / Interactive | Text / ASCII Tables |
-| **Data Entry** | In-cell editing, Copy/Paste | Form-based | Editable Dataframes | Interactive Prompts |
-| **Analytics** | Interactive Charts, Split View | Dashboard w/ Pie & Bar | Plotly Interactive Charts | ASCII Tables |
-| **Budgeting** | Matrix (Month x Category) | Matrix (Scrollable) | Matrix (Edit & Save) | Basic Set/Get |
+| Feature | PyQt6 (Power User) | Streamlit (Web) |
+| :--- | :--- | :--- |
+| **Best For** | Heavy data entry, Planning | Browser access, Visualizations |
+| **Visual Style** | Spreadsheet / Excel-like | Modern Web / Interactive |
+| **Data Entry** | In-cell editing, Copy/Paste | Editable Dataframes |
+| **Analytics** | Interactive Charts, Split View | Plotly Interactive Charts |
+| **Budgeting** | Matrix (Month x Category) | Matrix (Edit & Save) |
 
 ### 1. The Power User Suite (PyQt6)
 **Run:** `python main_gui_qt.py`
@@ -22,23 +22,11 @@ This project provides three distinct ways to manage your money. All interfaces s
 *   **Dual View:** Split screen for Income vs. Expense planning.
 *   **Advanced Analytics:** Interactive chart with toggleable series for Budget vs. Actual vs. Income.
 
-### 2. The Modern Dashboard (CustomTkinter)
-**Run:** `python main_gui_tk.py`
-*   **Sleek UI:** Built with `customtkinter` for a native dark/light mode experience.
-*   **Dashboard:** Instant visual summary of the year's performance (Pie & Bar charts).
-*   **Simplified Budgeting:** Clean form-based inputs for setting monthly limits.
-
-### 3. The Web Application (Streamlit)
+### 2. The Web Application (Streamlit)
 **Run:** `streamlit run main_streamlit.py`
 *   **Web Accessibility:** Run directly in your browser.
 *   **Interactive Analytics:** Powered by `Plotly` for rich, interactive visualizations (Trend lines, Donut charts).
 *   **Editable Dataframes:** Bulk edit transactions and budgets directly in the browser.
-
-### 4. The Command Line (CLI)
-**Run:** `python main_cli.py`
-*   **Fast startup.**
-*   **Text-based tables** (via `tabulate`).
-*   **Basic plotting** (pop-up window).
 
 ---
 
@@ -60,7 +48,7 @@ All interfaces support the core functionality:
     ```bash
     pip install -r requirements.txt
     ```
-    *Dependencies include: `PyQt6`, `customtkinter`, `pandas`, `matplotlib`, `tabulate`.*
+    *Dependencies include: `PyQt6`, `streamlit`, `pandas`, `matplotlib`, `plotly`.*
 
 ## 💾 Database Schema
 
@@ -91,22 +79,18 @@ ExpensesControl/
 ├── src/
 │   └── expenses_control/
 │       ├── core.py         # Shared Business Logic & DAL
-│       ├── cli.py          # CLI Implementation
 │       └── gui/
 │           ├── qt_app.py   # PyQt6 Implementation (Power User)
-│           ├── tk_app.py   # CustomTkinter Implementation (Modern)
 │           └── models.py   # Qt Data Models
 ├── main_gui_qt.py          # Entry point for Qt App
-├── main_gui_tk.py          # Entry point for Tk App
 ├── main_streamlit.py       # Entry point for Web App
-├── main_cli.py             # Entry point for CLI
 └── requirements.txt        # Dependencies
 ```
 
 ## ⚠️ Project Status
 
-*   **Audit Date:** January 2, 2026
+*   **Audit Date:** January 5, 2026
 *   **Status:** Active Development.
 *   **Known Issues:** 
     *   **Testing:** The project currently lacks automated unit tests (`tests/` is empty). All testing is manual.
-    *   **Interfaces:** All 4 interfaces (Qt, Tk, Web, CLI) are functional and share the same data.
+    *   **Interfaces:** The Qt and Streamlit interfaces are functional and share the same data.
