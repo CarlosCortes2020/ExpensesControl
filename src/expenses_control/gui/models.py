@@ -438,3 +438,99 @@ class RealIncomeTableModel(RealExpenseTableModel):
         self._df = em.db_get_real_income_matrix(self.year)
         self.refresh_data_internal(self._df)
         self.endResetModel()
+
+class ComparisonTableModel(BudgetTableModel):
+    def __init__(self, year, plan_df, real_df, mode="Expense"):
+        # We don't call super().__init__ directly because we need to process data first
+        # But we need to set up basics
+        super(BudgetTableModel, self).__init__()
+        self.year = year
+        self.mode = mode
+        self.month_names = em.MONTH_MAP
+        
+        # Align DataFrames
+        # Ensure they have same index and columns
+        common_index = plan_df.index.union(real_df.index)
+        plan_aligned = plan_df.reindex(common_index).fillna(0.0)
+        real_aligned = real_df.reindex(common_index).fillna(0.0)
+        
+        # Ensure columns 1..12
+        for m in range(1, 13):
+            if m not in plan_aligned.columns: plan_aligned[m] = 0.0
+            if m not in real_aligned.columns: real_aligned[m] = 0.0
+            
+        plan_aligned = plan_aligned[range(1, 13)]
+        real_aligned = real_aligned[range(1, 13)]
+        
+        if mode == "Expense":
+            # Difference = Budget - Real (Positive is under budget)
+            self.diff_df = plan_aligned - real_aligned
+        else:
+            # Difference = Real - Budget (Positive is over budget)
+            self.diff_df = real_aligned - plan_aligned
+            
+        self.refresh_data_internal(self.diff_df)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+            
+        # Get standard data first
+        value = super().data(index, role)
+        
+        # Foreground Color Logic
+        if role == Qt.ItemDataRole.ForegroundRole:
+            row = index.row()
+            col = index.column()
+            
+            # Skip Headers/Totals rows/cols for coloring if desired, 
+            # OR color them too. Let's color them too as it's useful info.
+            
+            # Get numerical value
+            try:
+                # We need the raw value, not the string formatted one
+                # super().data returns string for DisplayRole
+                # Let's peek at underlying dataframe directly for efficiency
+                
+                val = 0.0
+                if row == 0: # Totals Row
+                    if 1 <= col <= 12:
+                        val = self._monthly_totals.get(col, 0.0)
+                    elif col == 13:
+                        val = self._grand_total
+                elif 1 <= row <= self._view_df.shape[0]: # Data Row
+                    df_row = row - 1
+                    if col == 13: # Row Total
+                        val = self._category_totals.iloc[df_row]
+                    elif 1 <= col <= 12: # Monthly Value
+                        val = self._view_df.iloc[df_row, col]
+                
+                # Apply Color
+                if val > 0:
+                    return QColor("green")
+                elif val < 0:
+                    return QColor("red")
+                # Zero is default text color
+                
+            except Exception:
+                pass
+                
+        return value
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+
+    def rowCount(self, parent=QModelIndex()):
+        # Totals + Data Rows
+        return self._view_df.shape[0] + 1
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        return False
+        
+    def refresh_data(self):
+        # Data is static for the life of this model instance usually, 
+        # or we need to re-fetch both plan/real.
+        # For simplicity, we assume the parent widget recreates the model on refresh.
+        pass

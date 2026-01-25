@@ -29,6 +29,12 @@ MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "O
 MONTH_MAP = {i+1: name for i, name in enumerate(MONTH_NAMES)}
 MONTH_NAME_TO_NUM = {name: i+1 for i, name in enumerate(MONTH_NAMES)}
 
+GROUP_HEADERS = [
+    "AHORROS", "ALIMENTOS Y BEBIDAS", "CASA", "COMUNICACIÓN", "DESARROLLO PERSONAL", 
+    "DEUDAS", "DIVERSIÓN", "HIGIENE", "NIÑOS", "OTROS GASTOS", 
+    "ROPA Y CALZADO", "SALUD", "TRANSPORTE"
+]
+
 # --- CSV Persistence (Excel Style) ---
 
 def load_data_csv():
@@ -208,7 +214,7 @@ def db_rename_category(old_name, new_name):
     finally:
         conn.close()
 
-def db_get_categories(ctype=None):
+def db_get_categories(ctype=None, exclude_headers=False):
     """Fetch all category names, optionally filtered by type ('Expense' or 'Income')."""
     conn = get_db_connection()
     if ctype:
@@ -220,6 +226,10 @@ def db_get_categories(ctype=None):
         
     categories = [row['name'] for row in conn.execute(query, params).fetchall()]
     conn.close()
+    
+    if exclude_headers:
+        categories = [c for c in categories if c not in GROUP_HEADERS]
+        
     return categories
 
 def db_add_category(name, ctype='Expense'):

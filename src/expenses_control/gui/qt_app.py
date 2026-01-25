@@ -1,4 +1,5 @@
 import sys
+import calendar
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTableView, QVBoxLayout, 
                              QWidget, QHeaderView, QMessageBox, QDateEdit, 
                              QStyledItemDelegate, QComboBox, QFileDialog, QLabel,
@@ -12,9 +13,10 @@ from PyQt6.QtGui import QAction, QKeySequence, QShortcut, QColor, QPalette
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from .. import core as em
-from .models import ExpenseTableModel, BudgetTableModel, RealExpenseTableModel, RealIncomeTableModel
+from .models import ExpenseTableModel, BudgetTableModel, RealExpenseTableModel, RealIncomeTableModel, ComparisonTableModel
 
 # --- CHART STYLING ---
 
@@ -387,6 +389,13 @@ class IncomeWidget(QWidget):
         real_layout.addWidget(self.real_table)
         splitter.addWidget(self.real_group)
 
+        # 3. Comparison (Variance)
+        self.comp_group = QGroupBox("Comparativa (Real vs Presupuesto)")
+        comp_layout = QVBoxLayout(self.comp_group)
+        self.comp_table = QTableView()
+        comp_layout.addWidget(self.comp_table)
+        splitter.addWidget(self.comp_group)
+
         # Shortcuts
         self.setup_shortcuts(self.plan_table)
         self.setup_shortcuts(self.real_table)
@@ -410,6 +419,11 @@ class IncomeWidget(QWidget):
         self.real_table.setModel(self.real_model)
         self.setup_table_view(self.real_table)
         
+        # Comparison
+        self.comp_model = ComparisonTableModel(year, df_plan, df_real, mode="Income")
+        self.comp_table.setModel(self.comp_model)
+        self.setup_table_view(self.comp_table)
+        
         self.resize_tables()
 
     def setup_table_view(self, table_view):
@@ -422,7 +436,7 @@ class IncomeWidget(QWidget):
         )
 
     def resize_tables(self):
-        for tv in [self.plan_table, self.real_table]:
+        for tv in [self.plan_table, self.real_table, self.comp_table]:
             tv.resizeColumnsToContents()
             tv.resizeRowsToContents()
             
@@ -484,15 +498,20 @@ class IncomeWidget(QWidget):
             plan_text = "#81c784"
             real_border = "#81c784"
             real_text = "#a5d6a7"
+            comp_border = "#ffb74d"
+            comp_text = "#ffcc80"
         else:
             bg_alpha = "rgba(0, 0, 0, 0.02)"
             plan_border = "#388E3C"
             plan_text = "#2E7D32"
             real_border = "#2E7D32"
             real_text = "#1B5E20"
+            comp_border = "#F57C00"
+            comp_text = "#E65100"
 
         self._apply_style(self.plan_group, plan_border, plan_text, bg_alpha)
         self._apply_style(self.real_group, real_border, real_text, bg_alpha)
+        self._apply_style(self.comp_group, comp_border, comp_text, bg_alpha)
 
     def _apply_style(self, group, border, text_col, bg_alpha):
         group.setStyleSheet(f"""
@@ -514,15 +533,84 @@ class IncomeWidget(QWidget):
 
 # --- Widgets ---
 
+class AddCategoryDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Nueva Categoría")
+        self.resize(300, 150)
+        self.layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        self.name_edit = QLineEdit()
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(["Gasto", "Ingreso"])
+        
+        form.addRow("Nombre:", self.name_edit)
+        form.addRow("Tipo:", self.type_combo)
+        self.layout.addLayout(form)
+        
+        btn_box = QHBoxLayout()
+        self.btn_save = QPushButton("Guardar")
+        self.btn_save.clicked.connect(self.accept)
+        self.btn_cancel = QPushButton("Cancelar")
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_box.addWidget(self.btn_save)
+        btn_box.addWidget(self.btn_cancel)
+        self.layout.addLayout(btn_box)
+
+    def get_data(self):
+        return self.name_edit.text(), "Expense" if self.type_combo.currentText() == "Gasto" else "Income"
+
 class ExpensesWidget(QWidget):
     data_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
-        # self.layout.setContentsMargins(0, 0, 0, 0)
         
-        # Toolbar
+        # --- Filters ---
+        self.filter_group = QGroupBox("Filtros")
+        filter_layout = QHBoxLayout(self.filter_group)
+        
+        # Date Range
+        filter_layout.addWidget(QLabel("Desde:"))
+        self.date_from = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.date_from.setDisplayFormat("yyyy-MM-dd")
+        self.date_from.setCalendarPopup(True)
+        self.date_from.dateChanged.connect(self.refresh_data)
+        filter_layout.addWidget(self.date_from)
+        
+        filter_layout.addWidget(QLabel("Hasta:"))
+        self.date_to = QDateEdit(QDate.currentDate())
+        self.date_to.setDisplayFormat("yyyy-MM-dd")
+        self.date_to.setCalendarPopup(True)
+        self.date_to.dateChanged.connect(self.refresh_data)
+        filter_layout.addWidget(self.date_to)
+        
+        # Category
+        filter_layout.addWidget(QLabel("Categoría:"))
+        self.cat_filter = QComboBox()
+        self.cat_filter.addItem("Todas")
+        self.cat_filter.addItems(sorted(em.db_get_categories()))
+        self.cat_filter.currentTextChanged.connect(self.refresh_data)
+        filter_layout.addWidget(self.cat_filter)
+        
+        # Type
+        filter_layout.addWidget(QLabel("Tipo:"))
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["Todos", "Gasto", "Ingreso"])
+        self.type_filter.currentTextChanged.connect(self.refresh_data)
+        filter_layout.addWidget(self.type_filter)
+        
+        # Reset
+        self.btn_reset = QPushButton("Reset")
+        self.btn_reset.clicked.connect(self.reset_filters)
+        filter_layout.addWidget(self.btn_reset)
+        
+        filter_layout.addStretch()
+        self.layout.addWidget(self.filter_group)
+        
+        # --- Toolbar ---
         toolbar = QHBoxLayout()
         self.btn_add = QPushButton("+ Nuevo Registro")
         self.btn_add.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
@@ -546,8 +634,42 @@ class ExpensesWidget(QWidget):
         # Load Data
         self.refresh_data()
 
+    def reset_filters(self):
+        self.date_from.setDate(QDate.currentDate().addMonths(-1))
+        self.date_to.setDate(QDate.currentDate())
+        self.cat_filter.setCurrentIndex(0)
+        self.type_filter.setCurrentIndex(0)
+        self.refresh_data()
+
     def refresh_data(self):
-        self.df = em.db_get_all_expenses_df()
+        # 1. Get raw data
+        df = em.db_get_all_expenses_df()
+        
+        if not df.empty:
+            # 2. Apply Filters
+            # Date
+            df['Fecha'] = pd.to_datetime(df['Fecha'])
+            d_from = pd.to_datetime(self.date_from.date().toString("yyyy-MM-dd"))
+            d_to = pd.to_datetime(self.date_to.date().toString("yyyy-MM-dd"))
+            
+            df = df[(df['Fecha'] >= d_from) & (df['Fecha'] <= d_to)]
+            
+            # Convert back to string for display if needed, or keep as datetime?
+            # Model expects strings mostly for display, but datetime is fine if delegate handles it.
+            # But let's convert back to string YYYY-MM-DD for consistency with other parts
+            df['Fecha'] = df['Fecha'].dt.strftime('%Y-%m-%d')
+            
+            # Category
+            cat = self.cat_filter.currentText()
+            if cat != "Todas":
+                df = df[df['Categoría'] == cat]
+                
+            # Type
+            t = self.type_filter.currentText()
+            if t != "Todos":
+                df = df[df['Tipo'] == t]
+
+        self.df = df
         self.model = ExpenseTableModel(self.df)
         self.table_view.setModel(self.model)
         self.setup_table()
@@ -608,6 +730,17 @@ class ExpensesWidget(QWidget):
             self.refresh_data()
             self.data_changed.emit()
             self.table_view.scrollToTop()
+            # Update Category Filter list if new category added
+            self.update_category_filter()
+
+    def update_category_filter(self):
+        current = self.cat_filter.currentText()
+        self.cat_filter.blockSignals(True)
+        self.cat_filter.clear()
+        self.cat_filter.addItem("Todas")
+        self.cat_filter.addItems(sorted(em.db_get_categories()))
+        self.cat_filter.setCurrentText(current)
+        self.cat_filter.blockSignals(False)
 
     def delete_rows(self):
         selection = self.table_view.selectionModel()
@@ -667,6 +800,13 @@ class ExpenseAnalysisWidget(QWidget):
         self.real_table = QTableView()
         real_layout.addWidget(self.real_table)
         splitter.addWidget(self.real_group)
+
+        # 3. Comparison (Variance)
+        self.comp_group = QGroupBox("Comparativa (Presupuesto vs Real)")
+        comp_layout = QVBoxLayout(self.comp_group)
+        self.comp_table = QTableView()
+        comp_layout.addWidget(self.comp_table)
+        splitter.addWidget(self.comp_group)
         
         # Shortcuts
         self.setup_shortcuts(self.plan_table)
@@ -685,15 +825,20 @@ class ExpenseAnalysisWidget(QWidget):
             plan_text = "#90caf9"
             real_border = "#ef5350"
             real_text = "#ef9a9a"
+            comp_border = "#ffb74d"
+            comp_text = "#ffcc80"
         else:
             bg_alpha = "rgba(0, 0, 0, 0.02)"
             plan_border = "#1565C0"
             plan_text = "#0D47A1"
             real_border = "#C62828"
             real_text = "#B71C1C"
+            comp_border = "#F57C00"
+            comp_text = "#E65100"
 
         self._apply_style(self.plan_group, plan_border, plan_text, bg_alpha)
         self._apply_style(self.real_group, real_border, real_text, bg_alpha)
+        self._apply_style(self.comp_group, comp_border, comp_text, bg_alpha)
 
     def _apply_style(self, group, border, text_col, bg_alpha):
         group.setStyleSheet(f"""
@@ -735,6 +880,11 @@ class ExpenseAnalysisWidget(QWidget):
         self.real_table.setModel(self.real_model)
         self.setup_table_view(self.real_table)
         
+        # Comparison
+        self.comp_model = ComparisonTableModel(year, df_plan, df_real, mode="Expense")
+        self.comp_table.setModel(self.comp_model)
+        self.setup_table_view(self.comp_table)
+        
         self.resize_tables()
 
     def setup_table_view(self, table_view):
@@ -747,7 +897,7 @@ class ExpenseAnalysisWidget(QWidget):
         )
 
     def resize_tables(self):
-        for tv in [self.plan_table, self.real_table]:
+        for tv in [self.plan_table, self.real_table, self.comp_table]:
             tv.resizeColumnsToContents()
             tv.resizeRowsToContents()
 
@@ -796,6 +946,177 @@ class ExpenseAnalysisWidget(QWidget):
                 if r >= model.rowCount() or c >= model.columnCount(): continue
                 clean_val = cell_data.replace('$', '').replace(',', '').strip()
                 model.setData(model.index(r, c), clean_val, Qt.ItemDataRole.EditRole)
+
+class DailyWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.is_dark = False
+
+        # Top Bar (Year and Month)
+        top_bar = QHBoxLayout()
+        top_bar.addWidget(QLabel("Año:"))
+        self.year_spin = QSpinBox()
+        self.year_spin.setRange(2000, 2100)
+        self.year_spin.setValue(QDate.currentDate().year())
+        self.year_spin.valueChanged.connect(self.refresh_data)
+        top_bar.addWidget(self.year_spin)
+        
+        top_bar.addWidget(QLabel("Mes:"))
+        self.month_combo = QComboBox()
+        self.month_combo.addItems(em.MONTH_NAMES)
+        self.month_combo.setCurrentIndex(QDate.currentDate().month() - 1)
+        self.month_combo.currentIndexChanged.connect(self.refresh_data)
+        top_bar.addWidget(self.month_combo)
+        
+        top_bar.addStretch()
+        self.layout.addLayout(top_bar)
+
+        # Splitter (Chart on top, Table on bottom)
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        self.layout.addWidget(splitter)
+        
+        # 1. Chart
+        self.chart_group = QGroupBox("Evolución Diaria")
+        chart_layout = QVBoxLayout(self.chart_group)
+        self.figure = Figure(figsize=(8, 4), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        chart_layout.addWidget(self.canvas)
+        splitter.addWidget(self.chart_group)
+        
+        # 2. Details Table
+        self.details_group = QGroupBox("Detalle de Registros")
+        details_layout = QVBoxLayout(self.details_group)
+        self.details_table = QTableView()
+        details_layout.addWidget(self.details_table)
+        splitter.addWidget(self.details_group)
+        
+        # Metric Label
+        self.total_label = QLabel("Total Mes: $0.00")
+        self.total_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.total_label.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        self.layout.addWidget(self.total_label)
+
+        self.refresh_data()
+
+    def refresh_data(self):
+        year = self.year_spin.value()
+        month_idx = self.month_combo.currentIndex()
+        month_num = month_idx + 1
+        
+        # Fetch Data
+        df = em.db_get_all_expenses_df()
+        
+        if df.empty:
+            self.plot_empty()
+            self.details_table.setModel(None)
+            self.total_label.setText("Total Mes: $0.00")
+            return
+
+        # Filter
+        df['Fecha'] = pd.to_datetime(df['Fecha'])
+        mask = (df['Fecha'].dt.year == year) & (df['Fecha'].dt.month == month_num) & (df['Tipo'] == 'Gasto')
+        df_filtered = df[mask].copy()
+        
+        # Update Table (Read-only view of filtered data)
+        # We can reuse ExpenseTableModel but we need to hide some columns or make a simpler one
+        # For simplicity, let's use ExpenseTableModel but set flags to ReadOnly? 
+        # Or just a standard QStandardItemModel. Let's reuse ExpenseTableModel for consistency but make it read-only via delegate or subclass?
+        # Actually ExpenseTableModel allows editing. Let's use it but maybe disable editing in the view triggers.
+        
+        # Sort by Date Descending
+        df_filtered = df_filtered.sort_values('Fecha', ascending=False)
+        
+        self.model = ExpenseTableModel(df_filtered)
+        self.details_table.setModel(self.model)
+        self.details_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.details_table.setAlternatingRowColors(True)
+        self.details_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.details_table.verticalHeader().setVisible(False)
+        self.details_table.setColumnHidden(0, True) # Hide ID
+        self.details_table.resizeColumnsToContents()
+        
+        # Update Chart
+        self.update_chart(df_filtered, year, month_num)
+        
+        # Update Total
+        total = df_filtered['Monto'].sum()
+        self.total_label.setText(f"Total Mes: ${total:,.2f}")
+
+    def update_chart(self, df, year, month):
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        
+        ChartStyler.style_axis(ax, self.is_dark)
+        ax.set_facecolor("none")
+        
+        if df.empty:
+            ax.text(0.5, 0.5, "No hay gastos registrados", ha='center', va='center', 
+                    color="white" if self.is_dark else "black")
+        else:
+            # Group by Day
+            df['day'] = df['Fecha'].dt.day
+            daily_expenses = df.groupby('day')['Monto'].sum().reset_index()
+            
+            # Ensure all days
+            _, num_days = calendar.monthrange(year, month)
+            all_days = pd.DataFrame({'day': range(1, num_days + 1)})
+            daily_expenses = pd.merge(all_days, daily_expenses, on='day', how='left').fillna(0)
+            
+            # Plot
+            bars = ax.bar(daily_expenses['day'], daily_expenses['Monto'], color=ChartStyler.COLOR_REAL_EXP)
+            
+            ax.set_xlabel("Día")
+            ax.set_ylabel("Monto ($)")
+            ax.set_title(f"Gastos por Día - {em.MONTH_NAMES[month-1]} {year}")
+            ax.set_xlim(0, num_days + 1)
+            
+            ChartStyler.add_value_labels(ax, self.is_dark)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+        
+    def plot_empty(self):
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.text(0.5, 0.5, "Sin Datos", ha='center', va='center')
+        ax.axis('off')
+        self.canvas.draw()
+
+    def apply_chart_theme(self, mpl_params):
+        self.is_dark = (mpl_params['figure.facecolor'] == '#2b2b2b')
+        self.figure.set_facecolor(mpl_params['figure.facecolor'])
+        self.refresh_data()
+
+    def update_groupbox_styles(self, is_dark):
+        if is_dark:
+            bg_alpha = "rgba(255, 255, 255, 0.05)"
+            border = "#90caf9"
+            text = "#bbdefb"
+        else:
+            bg_alpha = "rgba(0, 0, 0, 0.02)"
+            border = "#1565C0"
+            text = "#0D47A1"
+            
+        style = f"""
+            QGroupBox {{
+                font-weight: bold;
+                border: 2px solid {border};
+                border-radius: 8px;
+                margin-top: 15px;
+                padding-top: 10px;
+                background-color: {bg_alpha};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: {text};
+            }}
+        """
+        self.chart_group.setStyleSheet(style)
+        self.details_group.setStyleSheet(style)
+
 
 class DashboardWidget(QWidget):
     def __init__(self, parent=None):
@@ -953,17 +1274,20 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
         
         self.dashboard_tab = DashboardWidget()
+        self.daily_tab = DailyWidget()
         self.income_tab = IncomeWidget()
         self.expenses_analysis_tab = ExpenseAnalysisWidget()
         self.registry_tab = ExpensesWidget() # The data entry widget
         
         self.tabs.addTab(self.dashboard_tab, "Tablero de Control")
+        self.tabs.addTab(self.daily_tab, "Diario")
         self.tabs.addTab(self.income_tab, "Ingresos")
         self.tabs.addTab(self.expenses_analysis_tab, "Gastos")
         self.tabs.addTab(self.registry_tab, "Registro Diario")
         
         # Connect Signals for Auto-Update
         self.registry_tab.data_changed.connect(self.dashboard_tab.refresh_data)
+        self.registry_tab.data_changed.connect(self.daily_tab.refresh_data)
         self.registry_tab.data_changed.connect(self.income_tab.refresh_data)
         self.registry_tab.data_changed.connect(self.expenses_analysis_tab.refresh_data)
         self.income_tab.data_changed.connect(self.dashboard_tab.refresh_data)
@@ -1013,6 +1337,12 @@ class MainWindow(QMainWindow):
         del_row_action.setShortcut(QKeySequence.StandardKey.Delete)
         del_row_action.triggered.connect(self.delete_expense_rows)
         edit_menu.addAction(del_row_action)
+        
+        edit_menu.addSeparator()
+
+        manage_cat_action = QAction("Gestionar Categorías...", self)
+        manage_cat_action.triggered.connect(self.manage_categories)
+        edit_menu.addAction(manage_cat_action)
 
         # View Menu
         view_menu = menu_bar.addMenu("&Ver")
@@ -1039,11 +1369,13 @@ class MainWindow(QMainWindow):
         # Update Matplotlib Chart
         mpl_params = self.theme_manager.get_mpl_params()
         self.dashboard_tab.apply_chart_theme(mpl_params)
+        self.daily_tab.apply_chart_theme(mpl_params)
         
         # Update GroupBox Colors
         is_dark = self.theme_manager.is_dark
         self.income_tab.update_groupbox_styles(is_dark)
         self.expenses_analysis_tab.update_groupbox_styles(is_dark)
+        self.daily_tab.update_groupbox_styles(is_dark)
 
     def export_data(self):
         options = ["Movimientos (Todos)", "Presupuesto de Gastos Planeado", "Presupuesto Gastos Reales", "Presupuesto de Ingresos Planeado", "Presupuesto Ingresos Reales"]
@@ -1097,6 +1429,20 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Info", "Cambie a la pestaña 'Registro Diario' para borrar.")
             return
         self.registry_tab.delete_rows()
+
+    def manage_categories(self):
+        dialog = AddCategoryDialog(self)
+        if dialog.exec():
+            name, ctype = dialog.get_data()
+            if name:
+                if em.db_add_category(name, ctype):
+                    QMessageBox.showinfo("Éxito", f"Categoría '{name}' creada.")
+                    # Refresh registry categories if needed
+                    self.registry_tab.update_category_filter()
+                else:
+                    QMessageBox.warning(self, "Error", "La categoría ya existe o nombre inválido.")
+            else:
+                QMessageBox.warning(self, "Advertencia", "El nombre no puede estar vacío.")
 
     def show_totals(self):
         if self.tabs.currentWidget() == self.registry_tab:

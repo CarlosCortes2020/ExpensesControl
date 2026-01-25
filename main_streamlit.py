@@ -290,6 +290,61 @@ def tab_matrix_view(year, type_label, db_type):
         
     st.dataframe(diff.style.format("{:,.2f}").applymap(lambda x: 'color: green' if x >= 0 else 'color: red'), use_container_width=True)
 
+def tab_daily(year):
+    st.subheader(f"Gastos por Día - {year}")
+    
+    # Month Selector
+    current_month = datetime.date.today().month
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        selected_month_name = st.selectbox("Seleccionar Mes", em.MONTH_NAMES, index=current_month-1)
+    
+    selected_month = em.MONTH_NAME_TO_NUM[selected_month_name]
+    
+    # Fetch Data
+    df = em.db_get_all_expenses_df()
+    
+    if df.empty:
+        st.info("No hay datos disponibles.")
+        return
+
+    # Filter by Year and Month, and Type=Gasto
+    # Ensure Fecha is datetime
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    mask = (df['Fecha'].dt.year == year) & (df['Fecha'].dt.month == selected_month) & (df['Tipo'] == 'Gasto')
+    df_filtered = df[mask].copy()
+    
+    if df_filtered.empty:
+        st.info(f"No hay gastos registrados en {selected_month_name} {year}.")
+        return
+
+    # Group by Day
+    df_filtered['day'] = df_filtered['Fecha'].dt.day
+    daily_expenses = df_filtered.groupby('day')['Monto'].sum().reset_index()
+    
+    # Ensure all days are present
+    import calendar
+    _, num_days = calendar.monthrange(year, selected_month)
+    all_days = pd.DataFrame({'day': range(1, num_days + 1)})
+    daily_expenses = pd.merge(all_days, daily_expenses, on='day', how='left').fillna(0)
+    
+    # Metrics
+    total_month = daily_expenses['Monto'].sum()
+    st.metric(f"Total Gastos {selected_month_name}", f"${total_month:,.2f}")
+
+    # 1. Chart
+    fig = px.bar(daily_expenses, x='day', y='Monto', title=f"Evolución Diaria - {selected_month_name}")
+    fig.update_layout(xaxis_title="Día", yaxis_title="Monto ($)", template="plotly_white")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 2. Table (Detailed view for that month)
+    with st.expander("Ver Detalle de Registros", expanded=True):
+        st.dataframe(
+            df_filtered[['Fecha', 'Categoría', 'Descripción', 'Monto', 'Método Pago']].sort_values('Fecha', ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+
 
 def tab_transactions():
     st.subheader("Registro de Movimientos")
@@ -330,6 +385,7 @@ def tab_transactions():
     # 2. Category Filter
     with col_f2:
         # Get unique categories from current data + default categories
+        # Note: Here we show ALL categories for filtering, even headers if they exist in data
         all_cats = sorted(list(set(df['Categoría'].unique()) | set(em.db_get_categories())))
         selected_cats = st.multiselect("Categoría", all_cats)
         
@@ -354,7 +410,8 @@ def tab_transactions():
     column_config = {
         "id": None, # Hide ID
         "Fecha": st.column_config.DateColumn("Fecha", format="YYYY-MM-DD", required=True),
-        "Categoría": st.column_config.SelectboxColumn("Categoría", options=em.db_get_categories(), required=True),
+        # Use exclude_headers=True for the dropdown options
+        "Categoría": st.column_config.SelectboxColumn("Categoría", options=em.db_get_categories(exclude_headers=True), required=True),
         "Descripción": st.column_config.TextColumn("Descripción", required=True),
         "Miembro": st.column_config.TextColumn("Miembro"),
         "Monto": st.column_config.NumberColumn("Monto", format="$%.2f", min_value=0.01, step=0.01, required=True),
@@ -439,18 +496,21 @@ def main():
     st.sidebar.info("Web App migrada con Streamlit")
     
     # Tabs
-    t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "📉 Gastos", "📈 Ingresos", "📝 Movimientos"])
+    t1, t2, t3, t4, t5 = st.tabs(["📊 Dashboard", "📅 Diario", "📉 Gastos", "📈 Ingresos", "📝 Movimientos"])
     
     with t1:
         tab_dashboard(selected_year)
     
     with t2:
+        tab_daily(selected_year)
+
+    with t3:
         tab_matrix_view(selected_year, "Gastos", "Expense")
         
-    with t3:
+    with t4:
         tab_matrix_view(selected_year, "Ingresos", "Income")
         
-    with t4:
+    with t5:
         tab_transactions()
 
 if __name__ == "__main__":
